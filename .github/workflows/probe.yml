@@ -1,0 +1,34 @@
+name: tg-probe
+on:
+  workflow_dispatch: {}
+permissions: {}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: probe
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+        run: |
+          set -e
+          WH=$(curl -s "https://api.telegram.org/bot${TG_TOKEN}/getWebhookInfo")
+          echo "$WH" | python3 -c "import sys,json;d=json.load(sys.stdin);print('webhook_url:',repr(d.get('result',{}).get('url','')))"
+          if echo "$WH" | grep -q '"url": *"[^"]'; then
+            curl -s "https://api.telegram.org/bot${TG_TOKEN}/deleteWebhook" >/dev/null
+            echo "webhook deleted"
+          fi
+          curl -s "https://api.telegram.org/bot${TG_TOKEN}/getUpdates?offset=-100&limit=50" -o /tmp/u.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/u.json'))
+          print("ok:",d.get("ok"),"count:",len(d.get("result",[])))
+          seen=set()
+          for u in d.get("result",[]):
+              for k in ("message","edited_message","my_chat_member","channel_post","chat_member"):
+                  if k in u and isinstance(u[k],dict) and "chat" in u[k]:
+                      c=u[k]["chat"]
+                      key=(c.get("id"),c.get("type"),c.get("title"))
+                      if key not in seen:
+                          seen.add(key)
+                          print("CHAT",c.get("id"),"|",c.get("type"),"|",c.get("title"))
+          PY
